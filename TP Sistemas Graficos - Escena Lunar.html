@@ -1,0 +1,1350 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>TP Sistemas Graficos - Escena Lunar</title>
+
+    <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
+
+    <style>
+        body{ background-color: grey; }
+        canvas{ background-color: grey; }
+        textarea{ background-color: black; foreground-color: white;}
+    </style>
+
+    <script type="text/javascript" src="glMatrix-0.9.5.min.js"></script>
+    <script type="text/javascript" src="webgl-utils.js"></script>
+
+
+
+	
+    <script id="PhongTexAPF-vs" type="x-shader/x-vertex"> //Tendria que funcionar correctamente. Basado en PhongColorAPF
+
+    attribute vec3 aVertexPosition;
+	attribute vec3 aVertexNormal;
+    attribute vec2 aTextureCoord;
+
+    uniform mat4 uMVMatrix;
+    uniform mat4 uPMatrix;
+	uniform mat3 uNMatrix;
+	uniform mat4 uVMatrix;
+	
+	uniform vec3 uLightDirection;
+	uniform vec3 uSpotPosition;
+	uniform vec3 uSpotDirection;
+
+    varying vec2 vTextureCoord;	
+    varying vec3 vTransformedNormal;
+    varying vec4 vPosition;
+	varying vec4 lightDirection;
+	varying vec4 spotPosition;
+	varying vec4 spotDirection;
+	varying float debug;
+	
+	
+    void main(void) {
+		
+		spotPosition = uVMatrix * vec4(uSpotPosition, 1.0);
+		spotDirection = uVMatrix * vec4(uSpotDirection + uSpotPosition, 1.0) - spotPosition;
+		lightDirection =   uVMatrix * vec4(0.0,0.0,0.0,1.0) - uVMatrix * vec4(normalize(uLightDirection),1.0);	//Falta cambiar aca por la vMatrix
+        vPosition = uMVMatrix * vec4(aVertexPosition, 1.0);
+        vTextureCoord = aTextureCoord;
+        vTransformedNormal = uNMatrix * aVertexNormal;
+        gl_Position = uPMatrix * vPosition;
+		
+		
+			debug = 0.0;
+			//if(vTextureCoord.t == 0.0) { debug = 1.0; }
+
+	}
+
+  	</script>
+	
+	
+    <script id="PhongTexAPF-fs" type="x-shader/x-fragment">
+		
+		
+		precision mediump float;
+		
+  		varying vec2 vTextureCoord;
+		varying vec3 vTransformedNormal;
+		varying vec4 vPosition;
+		varying vec4 lightDirection;
+		varying float debug;
+		
+		varying vec4 spotPosition;
+		varying vec4 spotDirection;
+		
+		uniform vec3 uLightIntensity;
+		uniform vec3 Ka;
+		uniform vec3 Kd;
+		uniform vec3 Ks;
+		uniform float shininess;
+		
+		uniform sampler2D uSampler;
+			
+		struct SpotLightInfo {
+			 // vec3 position;  // Position in eye coords.
+			  vec3 intensity; // Amb., Diff., and Specular intensity
+			 // vec3 direction; // Normalized direction of the spotlight 
+			  float exponent; // Angular attenuation exponent
+			  float cutoff;   // Cutoff angle (between 0 and 90)
+			  float attenWithDist;	// Attenuation over distance (must be very small)
+			};
+			
+		uniform SpotLightInfo spot;
+		
+		
+		void computePhongSpotLight(vec3 pos, vec3 norm, out vec3 difSpot, out vec3 specSpot) {
+			
+			float dist = length(vec3(spotPosition) - pos);
+			vec3 sSpot = normalize(vec3(spotPosition) - pos);
+			vec3 v = normalize(-pos);
+			float angle = acos( dot(-sSpot, normalize(vec3(spotDirection))) );
+			float cutoff = radians( clamp( spot.cutoff, 0.0, 90.0 ) );
+			
+			if( angle < cutoff ) {
+				float spotFactor = pow( dot(-sSpot, normalize(vec3(spotDirection))), spot.exponent )/(1.0+spot.attenWithDist*dist);
+				vec3 hSpot = normalize( v + sSpot );
+				
+				difSpot = spotFactor * spot.intensity * Kd * max( dot(sSpot, norm), 0.0 );
+				specSpot = spotFactor * spot.intensity * Ks * pow(max(dot(hSpot, norm), 0.0),shininess);
+			  } 
+			else {
+				difSpot = vec3(0.0,0.0,0.0);
+				specSpot = vec3(0.0,0.0,0.0);
+				}
+			
+		
+				
+		}
+		
+		void computePhongDirLight(vec3 pos, vec3 norm, out vec3 difDirLight, out vec3 specDirLight) {
+			
+			vec3 sDirLight = normalize( vec3(lightDirection) );
+			vec3 v = normalize(-pos);
+			vec3 h = normalize(v + sDirLight);
+			
+			difDirLight = uLightIntensity * Kd * max( dot(sDirLight, norm), 0.0 );
+			specDirLight = uLightIntensity * Ks * pow( max( dot(h,norm), 0.0 ), shininess ) ;
+			
+			
+		}
+		
+		
+        void main(void) {
+			
+			vec3 difDirLight;
+			vec3 specDirLight;
+			vec3 difSpot;
+			vec3 specSpot;
+			vec4 pos;
+			float debugfs;
+			
+			vec4 textureColor = texture2D(uSampler, vTextureCoord);
+			
+			if(textureColor == vec4(0.0,0.0,0.0,0.0)) {debugfs = 1.0;}
+			
+			computePhongDirLight(vec3(vPosition), normalize(vTransformedNormal), difDirLight, specDirLight);
+			computePhongSpotLight(vec3(vPosition), normalize(vTransformedNormal), difSpot, specSpot);
+			
+			vec4 ambient = vec4(Ka,1.0);
+			vec4 diffuse = vec4(difDirLight,0.0) + vec4(difSpot,0.0);
+			vec4 specular = vec4(specDirLight,0.0) + vec4(specSpot,0.0);
+			
+			
+				
+			gl_FragColor = (ambient + diffuse)*textureColor + specular; 
+			
+			//if(debug == 1.0 || debugfs == 1.0){ gl_FragColor = vec4(1.0,0.0,0.0,1.0); }
+
+        }
+		
+	</script>
+
+	
+	
+    <script id="PhongColorAPF-vs" type="x-shader/x-vertex">	//FUNCIONA CORRECTAMENTE. USAR COMO BASE PARA ARREGLAR EL RESTO
+
+    attribute vec3 aVertexPosition;
+	attribute vec3 aVertexNormal;
+
+    uniform mat4 uMVMatrix;
+    uniform mat4 uPMatrix;
+	uniform mat3 uNMatrix;
+	uniform mat4 uVMatrix;
+	
+	uniform vec3 uLightDirection;
+	uniform vec3 uSpotPosition;
+	uniform vec3 uSpotDirection;
+
+    varying vec3 vTransformedNormal;
+    varying vec4 vPosition;
+	varying vec4 lightDirection;
+	varying vec4 spotPosition;
+	varying vec4 spotDirection;
+	varying float debug;
+	
+	
+    void main(void) {
+		
+		spotPosition = uVMatrix * vec4(uSpotPosition, 1.0);
+		spotDirection = uVMatrix * vec4(uSpotDirection + uSpotPosition, 1.0) - spotPosition;
+		lightDirection =   uVMatrix * vec4(0.0,0.0,0.0,1.0) - uVMatrix * vec4(normalize(uLightDirection),1.0);	//Falta cambiar aca por la vMatrix
+        vPosition = uMVMatrix * vec4(aVertexPosition, 1.0);
+        vTransformedNormal = uNMatrix * aVertexNormal;
+        gl_Position = uPMatrix * vPosition;
+		
+		
+		debug = 0.0;
+		if(vec4(normalize(uLightDirection),1.0) == vec4(0.0,0.0,0.0,1.0)) { debug = 1.0; }
+    
+	}
+
+  	</script>
+	
+	
+    <script id="PhongColorAPF-fs" type="x-shader/x-fragment">
+		precision mediump float;
+		
+		varying vec3 vTransformedNormal;
+		varying vec4 vPosition;
+		varying vec4 lightDirection;
+		varying float debug;
+		
+		varying vec4 spotPosition;
+		varying vec4 spotDirection;
+		
+		uniform vec3 uLightIntensity;
+		uniform vec3 Ka;
+		uniform vec3 Kd;
+		uniform vec3 Ks;
+		uniform float shininess;
+			
+		struct SpotLightInfo {
+			 // vec3 position;  // Position in eye coords.
+			  vec3 intensity; // Amb., Diff., and Specular intensity
+			 // vec3 direction; // Normalized direction of the spotlight 
+			  float exponent; // Angular attenuation exponent
+			  float cutoff;   // Cutoff angle (between 0 and 90)
+			  float attenWithDist;	// Attenuation over distance (must be very small)
+			};
+			
+		uniform SpotLightInfo spot;
+		
+		
+		void computePhongSpotLight(vec3 pos, vec3 norm, out vec3 difSpot, out vec3 specSpot) {
+			
+			float dist = length(vec3(spotPosition) - pos);
+			vec3 sSpot = normalize(vec3(spotPosition) - pos);
+			vec3 v = normalize(-pos);
+			float angle = acos( dot(-sSpot, normalize(vec3(spotDirection))) );
+			float cutoff = radians( clamp( spot.cutoff, 0.0, 90.0 ) );
+			
+			if( angle < cutoff ) {
+				float spotFactor = pow( dot(-sSpot, normalize(vec3(spotDirection))), spot.exponent )/(1.0+spot.attenWithDist*dist);
+				vec3 hSpot = normalize( v + sSpot );
+				
+				difSpot = spotFactor * spot.intensity * Kd * max( dot(sSpot, norm), 0.0 );
+				specSpot = spotFactor * spot.intensity * Ks * pow(max(dot(hSpot, norm), 0.0),shininess);
+			  } 
+			else {
+				difSpot = vec3(0.0,0.0,0.0);
+				specSpot = vec3(0.0,0.0,0.0);
+				}
+			
+			if(debug == 1.0){
+				difSpot = vec3(1.0,0.0,0.0);
+			}
+				
+		}
+		
+		void computePhongDirLight(vec3 pos, vec3 norm, out vec3 difDirLight, out vec3 specDirLight) {
+			
+			vec3 sDirLight = normalize( vec3(lightDirection) );
+			vec3 v = normalize(-pos);
+			vec3 h = normalize(v + sDirLight);
+			
+			difDirLight = uLightIntensity * Kd * max( dot(sDirLight, norm), 0.0 );
+			specDirLight = uLightIntensity * Ks * pow( max( dot(h,norm), 0.0 ), shininess ) ;
+			
+			
+		}
+		
+		
+        void main(void) {
+			
+			
+			vec3 difDirLight;
+			vec3 specDirLight;
+			vec3 difSpot;
+			vec3 specSpot;
+			vec4 pos;
+
+			
+			vec3 normal = normalize(vTransformedNormal);
+			
+			computePhongDirLight(vec3(vPosition), normal, difDirLight, specDirLight); 
+			computePhongSpotLight(vec3(vPosition), normal, difSpot, specSpot); 
+			
+			vec4 ambient = vec4(Ka,1.0);
+			vec4 diffuse =  vec4(difDirLight,0.0) + vec4(difSpot,0.0); 
+			vec4 specular = vec4(specDirLight,0.0) + vec4(specSpot,0.0);
+			
+			
+				
+			gl_FragColor = (ambient + diffuse) + specular; 
+			//if(normal == vTransformedNormal) gl_FragColor = vec4(1.0,0.0,0.0,0.0);
+			
+			
+        }
+	</script>
+
+	
+	
+    <script id="PhongTexFacetAPF-vs" type="x-shader/x-vertex"> //Tendria que funcionar correctamente. Basado en PhongColorAPF
+
+    attribute vec3 aVertexPosition;
+	attribute vec3 aVertexNormal;
+    attribute vec2 aTextureCoord;
+
+    uniform mat4 uMVMatrix;
+    uniform mat4 uPMatrix;
+	uniform mat3 uNMatrix;
+	uniform mat4 uVMatrix;
+	
+	uniform vec3 uLightDirection;
+	uniform vec3 uSpotPosition;
+	uniform vec3 uSpotDirection;
+
+    varying vec2 vTextureCoord;	
+    varying vec4 vPosition;
+	varying vec4 lightDirection;
+	varying vec4 spotPosition;
+	varying vec4 spotDirection;
+	varying float debug;
+	
+	
+    void main(void) {
+		
+		vec3 normal = aVertexNormal;	//No se usa nunca, pero si sacamos esto tira error el getAttribCall del creador de este shader (createPhongTexFacetProgram)
+		
+		spotPosition = uVMatrix * vec4(uSpotPosition, 1.0);
+		spotDirection = uVMatrix * vec4(uSpotDirection + uSpotPosition, 1.0) - spotPosition;
+		lightDirection =   uVMatrix * vec4(0.0,0.0,0.0,1.0) - uVMatrix * vec4(normalize(uLightDirection),1.0);	//Falta cambiar aca por la vMatrix
+        vPosition = uMVMatrix * vec4(aVertexPosition, 1.0);
+        vTextureCoord = aTextureCoord;
+        gl_Position = uPMatrix * vPosition;
+		
+		
+			debug = 0.0;
+			if(vTextureCoord.t == 0.0) { debug = 1.0; }
+
+	}
+
+  	</script>
+	
+	
+    <script id="PhongTexFacetAPF-fs" type="x-shader/x-fragment">
+		
+		
+		precision mediump float;
+		
+  		varying vec2 vTextureCoord;
+		varying vec4 vPosition;
+		varying vec4 lightDirection;
+		varying float debug;
+		
+		varying vec4 spotPosition;
+		varying vec4 spotDirection;
+		
+		uniform vec3 uLightIntensity;
+		uniform vec3 Ka;
+		uniform vec3 Kd;
+		uniform vec3 Ks;
+		uniform float shininess;
+		
+		uniform sampler2D uSampler;
+			
+		struct SpotLightInfo {
+			  vec3 intensity; // Amb., Diff., and Specular intensity
+			  float exponent; // Angular attenuation exponent
+			  float cutoff;   // Cutoff angle (between 0 and 90)
+			  float attenWithDist;	// Attenuation over distance (must be very small)
+			};
+			
+		uniform SpotLightInfo spot;
+		
+		
+		void computePhongSpotLight(vec3 pos, vec3 norm, out vec3 difSpot, out vec3 specSpot) {
+			
+			float dist = length(vec3(spotPosition) - pos);
+			vec3 sSpot = normalize(vec3(spotPosition) - pos);
+			vec3 v = normalize(-pos);
+			float angle = acos( dot(-sSpot, normalize(vec3(spotDirection))) );
+			float cutoff = radians( clamp( spot.cutoff, 0.0, 90.0 ) );
+			
+			if( angle < cutoff ) {
+				float spotFactor = pow( dot(-sSpot, normalize(vec3(spotDirection))), spot.exponent )/(1.0+spot.attenWithDist*dist);
+				vec3 hSpot = normalize( v + sSpot );
+				
+				difSpot = spotFactor * spot.intensity * Kd * max( dot(sSpot, norm), 0.0 );
+				specSpot = spotFactor * spot.intensity * Ks * pow(max(dot(hSpot, norm), 0.0),shininess);
+			  } 
+			else {
+				difSpot = vec3(0.0,0.0,0.0);
+				specSpot = vec3(0.0,0.0,0.0);
+				}
+			
+		
+				
+		}
+		
+		void computePhongDirLight(vec3 pos, vec3 norm, out vec3 difDirLight, out vec3 specDirLight) {
+			
+			vec3 sDirLight = normalize( vec3(lightDirection) );
+			vec3 v = normalize(-pos);
+			vec3 h = normalize(v + sDirLight);
+			
+			difDirLight = uLightIntensity * Kd * max( dot(sDirLight, norm), 0.0 );
+			specDirLight = uLightIntensity * Ks * pow( max( dot(h,norm), 0.0 ), shininess ) ;
+			
+			
+		}
+		
+		
+        void main(void) {
+			#extension GL_OES_standard_derivatives : enable
+
+			vec3 difDirLight;
+			vec3 specDirLight;
+			vec3 difSpot;
+			vec3 specSpot;
+			vec4 pos;
+			float debugfs;
+			
+			// FUNCIONA, pero da efecto facetado
+					// Differentiate the position vector
+			vec3 dPositiondx = dFdx(vec3(vPosition));
+			vec3 dPositiondy = dFdy(vec3(vPosition));
+
+					// The normal is the cross product of the differentials
+			vec3 normal = normalize(cross(dPositiondx, dPositiondy));
+			
+			vec4 textureColor = texture2D(uSampler, vTextureCoord);
+			
+			if(textureColor == vec4(0.0,0.0,0.0,0.0)) {debugfs = 1.0;}
+			
+			computePhongDirLight(vec3(vPosition), normal, difDirLight, specDirLight);
+			computePhongSpotLight(vec3(vPosition), normal, difSpot, specSpot);
+			
+			vec4 ambient = vec4(Ka,1.0);
+			vec4 diffuse = vec4(difDirLight,0.0) + vec4(difSpot,0.0);
+			vec4 specular = vec4(specDirLight,0.0) + vec4(specSpot,0.0);
+			
+			
+				
+			gl_FragColor = (ambient + diffuse)*textureColor + specular; 
+			
+			//if(debug == 1.0 || debugfs == 1.0){ gl_FragColor = vec4(1.0,0.0,0.0,1.0); }
+
+        }
+		
+	</script>
+
+	
+	
+    <script id="PhongTexAutoilum-vs" type="x-shader/x-vertex"> //Tendria que funcionar correctamente. Basado en PhongColorAPF
+
+    attribute vec3 aVertexPosition;
+	attribute vec3 aVertexNormal;
+    attribute vec2 aTextureCoord;
+
+    uniform mat4 uMVMatrix;
+    uniform mat4 uPMatrix;
+	uniform mat3 uNMatrix;
+	uniform mat4 uVMatrix;
+	
+	uniform vec3 uLightDirection;
+	uniform vec3 uSpotPosition;
+	uniform vec3 uSpotDirection;
+
+	varying vec3 vTransformedNormal;
+    varying vec2 vTextureCoord;	
+    varying vec4 vPosition;
+	varying vec4 lightDirection;
+	varying vec4 spotPosition;
+	varying vec4 spotDirection;
+	varying float debug;
+	
+	
+    void main(void) {
+		
+		vTransformedNormal = uNMatrix*aVertexNormal ;	
+		spotPosition = uVMatrix * vec4(uSpotPosition, 1.0);
+		spotDirection = uVMatrix * vec4(uSpotDirection + uSpotPosition, 1.0) - spotPosition;
+		lightDirection =   uVMatrix * vec4(0.0,0.0,0.0,1.0) - uVMatrix * vec4(normalize(uLightDirection),1.0);	//Falta cambiar aca por la vMatrix
+        vPosition = uMVMatrix * vec4(aVertexPosition, 1.0);
+        vTextureCoord = aTextureCoord;
+        gl_Position = uPMatrix * vPosition;
+		
+		
+			debug = 0.0;
+			if(vTextureCoord.t == 0.0) { debug = 1.0; }
+
+	}
+
+  	</script>
+	
+	
+    <script id="PhongTexAutoilum-fs" type="x-shader/x-fragment">
+		
+		
+		precision mediump float;
+		
+		varying vec3 vTransformedNormal;
+  		varying vec2 vTextureCoord;
+		varying vec4 vPosition;
+		varying vec4 lightDirection;
+		varying float debug;
+		
+		varying vec4 spotPosition;
+		varying vec4 spotDirection;
+		
+		uniform vec3 uLightIntensity;
+		uniform vec3 Ka;
+		uniform vec3 Kd;
+		uniform vec3 Ks;
+		uniform float shininess;
+		
+		uniform sampler2D colorTex;
+		uniform sampler2D autoilumTex;
+		uniform bool facetado;
+		uniform bool boliche;	
+		uniform float t;
+		
+		struct SpotLightInfo {
+			  vec3 intensity; // Amb., Diff., and Specular intensity
+			  float exponent; // Angular attenuation exponent
+			  float cutoff;   // Cutoff angle (between 0 and 90)
+			  float attenWithDist;	// Attenuation over distance (must be very small)
+			};
+			
+		uniform SpotLightInfo spot;
+		
+		
+		void computePhongSpotLight(vec3 pos, vec3 norm, out vec3 difSpot, out vec3 specSpot) {
+			
+			float dist = length(vec3(spotPosition) - pos);
+			vec3 sSpot = normalize(vec3(spotPosition) - pos);
+			vec3 v = normalize(-pos);
+			float angle = acos( dot(-sSpot, normalize(vec3(spotDirection))) );
+			float cutoff = radians( clamp( spot.cutoff, 0.0, 90.0 ) );
+			
+			if( angle < cutoff ) {
+				float spotFactor = pow( dot(-sSpot, normalize(vec3(spotDirection))), spot.exponent )/(1.0+spot.attenWithDist*dist);
+				vec3 hSpot = normalize( v + sSpot );
+				
+				difSpot = spotFactor * spot.intensity * Kd * max( dot(sSpot, norm), 0.0 );
+				specSpot = spotFactor * spot.intensity * Ks * pow(max(dot(hSpot, norm), 0.0),shininess);
+			  } 
+			else {
+				difSpot = vec3(0.0,0.0,0.0);
+				specSpot = vec3(0.0,0.0,0.0);
+				}
+			
+		
+				
+		}
+		
+		void computePhongDirLight(vec3 pos, vec3 norm, out vec3 difDirLight, out vec3 specDirLight) {
+			
+			vec3 sDirLight = normalize( vec3(lightDirection) );
+			vec3 v = normalize(-pos);
+			vec3 h = normalize(v + sDirLight);
+			
+			difDirLight = uLightIntensity * Kd * max( dot(sDirLight, norm), 0.0 );
+			specDirLight = uLightIntensity * Ks * pow( max( dot(h,norm), 0.0 ), shininess ) ;
+			
+			
+		}
+		
+		float rand(vec2 co){
+			return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
+		}
+		
+        void main(void) {
+			#extension GL_OES_standard_derivatives : enable
+
+			vec3 difDirLight;
+			vec3 specDirLight;
+			vec3 difSpot;
+			vec3 specSpot;
+			vec4 pos;
+			vec3 normal;
+			float debugfs;
+			
+			
+			
+			if(facetado){
+			// FUNCIONA, pero da efecto facetado
+					// Differentiate the position vector
+			vec3 dPositiondx = dFdx(vec3(vPosition));
+			vec3 dPositiondy = dFdy(vec3(vPosition));
+
+					// The normal is the cross product of the differentials
+			normal = normalize(cross(dPositiondx, dPositiondy));
+			}else {
+			
+			normal = normalize(vTransformedNormal);
+				
+			}
+			vec4 textureColor = texture2D(colorTex, vTextureCoord);
+			vec4 autoilumColor = texture2D(autoilumTex, vTextureCoord);
+			
+			if(textureColor == vec4(0.0,0.0,0.0,0.0)) {debugfs = 1.0;}
+			
+			computePhongDirLight(vec3(vPosition), normal, difDirLight, specDirLight);
+			computePhongSpotLight(vec3(vPosition), normal, difSpot, specSpot);
+			
+			vec4 ambient = vec4(Ka,1.0);
+			vec4 diffuse = vec4(difDirLight,0.0) + vec4(difSpot,0.0);
+			vec4 specular = vec4(specDirLight,0.0) + vec4(specSpot,0.0);
+			
+			if(boliche){
+				autoilumColor = autoilumColor*vec4(rand(vec2(t,t+4.0)),rand(vec2(t,t+8.0)),rand(vec2(t,t-10.0)),1.0);
+			}
+				
+			gl_FragColor = (ambient + diffuse + autoilumColor)*textureColor + specular ; 
+			
+			//if(debug == 1.0 || debugfs == 1.0){ gl_FragColor = vec4(1.0,0.0,0.0,1.0); }
+
+        }
+		
+	</script>
+
+	
+	
+	
+    <script id="PhongTexNormMapAPF-vs" type="x-shader/x-vertex">
+		attribute vec3 aVertexPosition;
+		attribute vec3 aVertexNormal;
+		attribute vec2 aTextureCoord;
+		attribute vec3 aVertexTangent;
+		
+		
+		uniform mat4 uMVMatrix;
+		uniform mat4 uPMatrix;
+		uniform mat3 uNMatrix;
+		uniform mat4 uVMatrix;
+		
+		uniform vec3 uLightDirection;
+		uniform vec3 uSpotPosition;
+		uniform vec3 uSpotDirection;
+
+		varying vec2 vTextureCoord;	
+		varying vec3 sDirTg;				//Mandar en coord de tg
+		//varying vec3 sSpotTg;				//Mandar en coord de tg
+		varying vec3 spotDirectionTg;		//Mandar en coord de tg
+		varying vec3 vTg;					//Mandar en coord de tg
+		
+		varying vec3 spotPositionTg;
+		varying vec3 posTg;
+		
+		varying float debug;	
+		
+		
+		void main(void) {
+			
+			vec4 vPosition = uMVMatrix * vec4(aVertexPosition, 1.0);
+			
+			// Transform normal and tangent to eye space
+			vec3 norm = normalize(uNMatrix * aVertexNormal);
+			vec3 tang = normalize(uNMatrix * aVertexTangent);
+			// Compute the binormal
+			vec3 binormal = normalize( cross( norm, tang ) );
+			
+			// Matrix for transformation to tangent space
+			mat3 toObjectLocal = mat3(
+				tang.x, binormal.x, norm.x,
+				tang.y, binormal.y, norm.y,
+				tang.z, binormal.z, norm.z ) ;
+				
+			
+			vec3 pos = vec3(vPosition);	//en eye coord
+			vec3 spotPositionEyeCoord = vec3(uVMatrix * vec4(uSpotPosition, 1.0)); //en eye coord
+			vec3 spotDirectionEyeCoord = vec3(uVMatrix * vec4(uSpotDirection + uSpotPosition, 1.0)) - vec3(uVMatrix * vec4(uSpotPosition, 1.0));
+			vec3 sDirEyeCoord = vec3(uVMatrix * vec4(0.0,0.0,0.0,1.0) - uVMatrix * vec4(normalize(uLightDirection),1.0));
+			
+			
+			
+			// Calculo todos los varying
+			posTg = toObjectLocal*pos;
+			spotPositionTg = toObjectLocal*spotPositionEyeCoord;
+			//sSpotTg = toObjectLocal*normalize(spotPositionEyeCoord - pos);	//en tg coord 
+			spotDirectionTg = toObjectLocal*normalize(spotDirectionEyeCoord); //en tg coord			
+			sDirTg = normalize(toObjectLocal*sDirEyeCoord);	// en tg coord	
+			vTg = toObjectLocal * normalize(-pos);
+			vTextureCoord = aTextureCoord;
+
+			gl_Position = uPMatrix * vPosition;
+			
+			
+				debug = 0.0;
+				if(vTextureCoord == vec2(0.0,0.0)) { debug = 1.0; }
+
+		}
+
+		
+  	</script>
+	
+	
+    <script id="PhongTexNormMapAPF-fs" type="x-shader/x-fragment">
+		precision mediump float;
+		
+		varying vec2 vTextureCoord;	
+		varying vec3 sDirTg;				
+		//varying vec3 sSpotTg;				
+		varying vec3 spotDirectionTg;		
+		varying vec3 vTg;		
+		
+		varying vec3 posTg;
+		varying vec3 spotPositionTg;
+		
+		
+		varying float debug;
+
+		
+		uniform vec3 uLightIntensity;
+		uniform vec3 Ka;
+		uniform vec3 Kd;
+		uniform vec3 Ks;
+		uniform float shininess;
+		
+		uniform sampler2D colorTex;
+		uniform sampler2D normalMapTex;
+			
+			float debugfs;
+			
+		struct SpotLightInfo {
+			  vec3 intensity; // Amb., Diff., and Specular intensity
+			  float exponent; // Angular attenuation exponent
+			  float cutoff;   // Cutoff angle (between 0 and 90)
+			  float attenWithDist;	// Attenuation over distance (must be very small)
+			};
+			
+		uniform SpotLightInfo spot;
+		
+		
+		/*void computePhongSpotLight( vec3 norm, out vec3 difSpot, out vec3 specSpot) {
+			
+			float dist = 0.0 ;	//float dist = length(vec3(spotPosition) - pos);
+			
+			//vec3 sSpot = normalize(vec3(spotPosition) - pos);
+			//vec3 v = normalize(-pos);
+			
+			float angle = acos( dot(-normalize(sSpotTg), normalize(vec3(spotDirectionTg))) );
+			float cutoff = radians( clamp( spot.cutoff, 0.0, 90.0 ) );
+			
+			if( angle < cutoff ) {
+				float spotFactor = pow( dot(-normalize(sSpotTg), normalize(vec3(spotDirectionTg))), spot.exponent )/(1.0+spot.attenWithDist*dist);
+				vec3 hSpot = normalize( vTg + sSpotTg );
+				
+				difSpot = spotFactor * spot.intensity * Kd * max( dot(sSpotTg, norm), 0.0 );
+				specSpot = spotFactor * spot.intensity * Ks * pow(max(dot(hSpot, norm), 0.0),shininess);
+				
+				
+			  } 
+			else {
+				difSpot = vec3(0.0,0.0,0.0);
+				specSpot = vec3(0.0,0.0,0.0);
+				debugfs = 1.0;
+				}
+			
+		
+				
+		}*/
+		
+		void computePhongSpotLight(vec3 norm, out vec3 difSpot, out vec3 specSpot) {
+			
+			float dist = length(spotPositionTg - posTg);
+			
+			vec3 sSpotTg = normalize(spotPositionTg - posTg);
+			vec3 v = normalize(-posTg);
+			
+			float angle = acos( dot(-normalize(sSpotTg), normalize(vec3(spotDirectionTg))) );
+			float cutoff = radians( clamp( spot.cutoff, 0.0, 90.0 ) );
+			
+			if( angle < cutoff ) {
+				float spotFactor = pow( dot(-normalize(sSpotTg), normalize(vec3(spotDirectionTg))), spot.exponent )/(1.0+spot.attenWithDist*dist);
+				vec3 hSpot = normalize( v + sSpotTg );	//vTg
+				
+				difSpot = spotFactor * spot.intensity * Kd * max( dot(sSpotTg, norm), 0.0 );
+				specSpot = spotFactor * spot.intensity * Ks * pow(max(dot(hSpot, norm), 0.0),shininess);
+				
+				
+			  } 
+			else {
+				difSpot = vec3(0.0,0.0,0.0);
+				specSpot = vec3(0.0,0.0,0.0);
+				debugfs = 1.0;
+				}
+			
+		
+				
+		}
+		
+		void computePhongDirLight(vec3 norm, out vec3 difDirLight, out vec3 specDirLight) {
+			
+			//vec3 sDirLight = normalize( vec3(lightDirection) );
+			vec3 v = normalize(-posTg);
+			vec3 h = normalize(v + sDirTg);	//vTg
+			
+			difDirLight = uLightIntensity * Kd * max( dot(sDirTg, norm), 0.0 );
+			specDirLight = uLightIntensity * Ks * pow( max( dot(h,norm), 0.0 ), shininess ) ;
+			
+			
+		}
+		
+		
+        void main(void) {
+			
+			vec3 difDirLight;
+			vec3 specDirLight;
+			vec3 difSpot;
+			vec3 specSpot;
+			//float debugfs;
+			
+			vec4 normal = texture2D( normalMapTex, vTextureCoord );	//multiplicar por 2 y restarle 1?
+			vec4 textureColor = texture2D( colorTex, vTextureCoord );
+			
+			if(textureColor == vec4(0.0,0.0,0.0,0.0)) {debugfs = 1.0;}
+			
+			computePhongDirLight( normal.xyz*2.0-1.0, difDirLight, specDirLight);
+			computePhongSpotLight(  normal.xyz*2.0-1.0, difSpot, specSpot);
+			
+			vec4 ambient = vec4(Ka,1.0);
+			vec4 diffuse =   vec4(difDirLight,0.0) + vec4(difSpot,0.0); 	
+			vec4 specular =  vec4(specDirLight,0.0) + vec4(specSpot,0.0);	
+			
+			
+				
+			gl_FragColor = (ambient + diffuse)*(textureColor+vec4(0.5,0.5,0.5,0.0)) + specular; 
+			
+			//if(debug == 1.0 || debugfs == 1.0){ gl_FragColor = vec4(1.0,0.0,0.0,1.0); }
+			//if(specular ==vec4(0.0,0.0,0.0,0.0)) {gl_FragColor = vec4(1.0,0.0,0.0,0.0);}
+        }
+		
+	</script>
+
+	
+	
+    <script id="PhongCubeMapReflec-vs" type="x-shader/x-vertex">	//FUNCIONA CORRECTAMENTE. USAR COMO BASE PARA ARREGLAR EL RESTO
+	
+    attribute vec3 aVertexPosition;
+	attribute vec3 aVertexNormal;
+
+    uniform mat4 uMVMatrix;
+    uniform mat4 uPMatrix;
+	uniform mat3 uNMatrix;
+	uniform mat4 uVMatrix;
+	
+	uniform mat4 uMMatrix;
+	
+	uniform vec3 uLightDirection;
+	uniform vec3 uSpotPosition;
+	uniform vec3 uSpotDirection;
+	
+	uniform bool drawSkyBox;
+
+    varying vec3 vTransformedNormal;
+    varying vec4 vPosition;
+	varying vec4 lightDirection;
+	varying vec4 spotPosition;
+	varying vec4 spotDirection;
+	
+	varying vec3 reflectDir;
+	
+	varying float debug;
+	
+	
+    void main(void) {
+		
+		if( drawSkyBox ) {
+		reflectDir = aVertexPosition; //vec3( uMMatrix * vec4(aVertexPosition,1.0) );
+			
+		spotPosition = uVMatrix * vec4(uSpotPosition, 1.0);
+		spotDirection = uVMatrix * vec4(uSpotDirection + uSpotPosition, 1.0) - spotPosition;
+		lightDirection =   uVMatrix * vec4(0.0,0.0,0.0,1.0) - uVMatrix * vec4(normalize(uLightDirection),1.0);	//Falta cambiar aca por la vMatrix
+        vPosition = uMVMatrix * vec4(aVertexPosition, 1.0);
+        vTransformedNormal = uNMatrix * aVertexNormal;
+		
+		} else {
+		spotPosition = uVMatrix * vec4(uSpotPosition, 1.0);
+		spotDirection = uVMatrix * vec4(uSpotDirection + uSpotPosition, 1.0) - spotPosition;
+		lightDirection =   uVMatrix * vec4(0.0,0.0,0.0,1.0) - uVMatrix * vec4(normalize(uLightDirection),1.0);	//Falta cambiar aca por la vMatrix
+        vPosition = uMVMatrix * vec4(aVertexPosition, 1.0);
+        vTransformedNormal = uNMatrix * aVertexNormal;
+		
+		vec3 worldPos = vec3( uMMatrix * vec4(aVertexPosition,1.0) );
+        vec3 worldNorm = vec3( uMMatrix * vec4(aVertexNormal, 0.0));
+		vec3 worldCameraPos = -vec3(uVMatrix * vec4(0.0,0.0,0.0,1.0));
+		vec3 worldView = normalize(worldCameraPos - worldPos);
+		
+		reflectDir = reflect(-worldView, worldNorm);
+		
+		}
+        gl_Position = uPMatrix * vPosition;
+		
+		
+		debug = 0.0;
+		if(gl_Position == vec4(0.0,0.0,0.0,1.0)) { debug = 1.0; }
+    
+	}
+
+  	</script>
+	
+	
+    <script id="PhongCubeMapReflec-fs" type="x-shader/x-fragment">
+	
+		precision mediump float;
+		
+		varying vec3 vTransformedNormal;
+		varying vec4 vPosition;
+		varying vec4 lightDirection;
+		varying float debug;
+		
+		varying vec4 spotPosition;
+		varying vec4 spotDirection;
+		
+		varying vec3 reflectDir;
+		uniform samplerCube cubeMapTex;
+		uniform float reflectFactor;
+		uniform bool drawSkyBox;
+		
+		uniform vec3 uLightIntensity;
+		uniform vec3 Ka;
+		uniform vec3 Kd;
+		uniform vec3 Ks;
+		uniform float shininess;
+			
+		struct SpotLightInfo {
+			  vec3 intensity; // Amb., Diff., and Specular intensity
+			  float exponent; // Angular attenuation exponent
+			  float cutoff;   // Cutoff angle (between 0 and 90)
+			  float attenWithDist;	// Attenuation over distance (must be very small)
+			};
+			
+		uniform SpotLightInfo spot;
+		
+		
+		void computePhongSpotLight(vec3 pos, vec3 norm, out vec3 difSpot, out vec3 specSpot) {
+			
+			float dist = length(vec3(spotPosition) - pos);
+			vec3 sSpot = normalize(vec3(spotPosition) - pos);
+			vec3 v = normalize(-pos);
+			float angle = acos( dot(-sSpot, normalize(vec3(spotDirection))) );
+			float cutoff = radians( clamp( spot.cutoff, 0.0, 90.0 ) );
+			
+			if( angle < cutoff ) {
+				float spotFactor = pow( dot(-sSpot, normalize(vec3(spotDirection))), spot.exponent )/(1.0+spot.attenWithDist*dist);
+				vec3 hSpot = normalize( v + sSpot );
+				
+				difSpot = spotFactor * spot.intensity * Kd * max( dot(sSpot, norm), 0.0 );
+				specSpot = spotFactor * spot.intensity * Ks * pow(max(dot(hSpot, norm), 0.0),shininess);
+			  } 
+			else {
+				difSpot = vec3(0.0,0.0,0.0);
+				specSpot = vec3(0.0,0.0,0.0);
+				}
+			
+			if(debug == 1.0){
+				difSpot = vec3(1.0,0.0,0.0);
+			}
+				
+		}
+		
+		void computePhongDirLight(vec3 pos, vec3 norm, out vec3 difDirLight, out vec3 specDirLight) {
+			
+			vec3 sDirLight = normalize( vec3(lightDirection) );
+			vec3 v = normalize(-pos);
+			vec3 h = normalize(v + sDirLight);
+			
+			difDirLight = uLightIntensity * Kd * max( dot(sDirLight, norm), 0.0 );
+			specDirLight = uLightIntensity * Ks * pow( max( dot(h,norm), 0.0 ), shininess ) ;
+			
+			
+		}
+		
+		
+        void main(void) {
+		
+			float debugfs=0.0;
+			
+			vec4 cubeMapColor = textureCube(cubeMapTex, reflectDir);
+			
+			if (drawSkyBox) {
+				gl_FragColor = cubeMapColor;
+				//gl_FragColor = vec4(1.0,1.0,0.0,0.0);
+				
+			} else {
+			
+			vec3 difDirLight;
+			vec3 specDirLight;
+			vec3 difSpot;
+			vec3 specSpot;
+			vec4 pos;
+
+			
+			vec3 normal = normalize(vTransformedNormal);
+			
+			computePhongDirLight(vec3(vPosition), normal, difDirLight, specDirLight); 
+			computePhongSpotLight(vec3(vPosition), normal, difSpot, specSpot); 
+			
+			vec4 ambient = vec4(Ka,1.0);
+			vec4 diffuse =  vec4(difDirLight,0.0) + vec4(difSpot,0.0); 
+			vec4 specular = vec4(specDirLight,0.0) + vec4(specSpot,0.0);
+			
+			
+				
+			gl_FragColor = mix((ambient + diffuse),cubeMapColor,reflectFactor*0.8) + specular; 
+			//if(normal == vTransformedNormal) gl_FragColor = vec4(1.0,0.0,0.0,0.0);
+			//gl_FragColor = vec4(1.0,0.0,0.0,1.0);
+			}
+			
+			//if(debug == 1.0 || debugfs == 1.0){ gl_FragColor = vec4(1.0,0.0,0.0,1.0); }
+
+        }
+	</script>
+
+	
+	
+	
+
+    <script src="cannon.js"></script>
+    <script src="simuladorFisicoPropio.js"></script>
+	<script src="funcGeneradoraDeCurvasDeBezier.js"></script>
+	<script src="funcGeneradoraDeCurvasBSpline.js"></script>
+	<script src="VariablesGlobales.js"></script>
+	<script src="TecladoYMouse.js"></script>
+	<script src="funcionesVarias.js"></script>
+	<script src="initBuffers.js"></script>
+	<script src="shaders.js"></script>
+	<script src="dibujables.js"></script>
+	<script src="materials.js"></script>
+	<script src="camaras.js"></script>
+	<script src="luces.js"></script>
+	<script src="initTextures.js"></script>
+
+	
+
+
+
+
+    <script type="text/javascript">
+
+        
+
+        function initGL(canvas) {
+            gl = null;
+
+            try {
+                // Try to grab the standard context. If it fails, fallback to experimental.
+                gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+				//gl = create3DContext(canvas);
+				gl.getExtension("OES_standard_derivatives");
+				gl.viewportWidth = canvas.width;
+				gl.viewportHeight = canvas.height;
+            }
+            catch(e) {}
+
+            // If we don't have a GL context, give up now
+            if (!gl) {
+                alert("Unable to initialize WebGL. Your browser may not support it.");
+                gl = null;
+            }
+
+            return gl;
+        }
+
+       
+	
+
+
+	
+			
+		
+		var lim = 25;	//DEBUG
+		var cont= 0;	//DEBUG
+		
+			
+        function initWorldObjects() {
+		
+			worldObjects = [];
+			
+			suelo = new Plano([1.0,1.0,1.0], [0,0,-10],[0,0,0],materialSuelo);
+			worldObjects.push(suelo);	
+			
+			torreDeControl = new Torre([0.8,0.8,0.8], [300,-75,-10], [0,0,0], materialTorreDeControl);
+			worldObjects.push(torreDeControl);
+			
+			escalaMangueras = [1.2,1.2,1.2];
+			manguera1 = new Manguera(escalaMangueras , torreDeControl.posicion , [0,0,degToRad(90)], materialManguera, 1);
+			worldObjects.push(manguera1);
+			manguera2 = new Manguera(escalaMangueras , torreDeControl.posicion , [0,0,degToRad(90)], materialManguera, 2);
+			worldObjects.push(manguera2);
+			manguera3 = new Manguera(escalaMangueras , torreDeControl.posicion  , [0,0,degToRad(90)], materialManguera, 3);
+			worldObjects.push(manguera3);
+			
+			var altCil = 30;
+			var radioCil = 15;
+			cil1 = new Cilindro(altCil,radioCil , manguera1.getPosFin() , [0,0,0], materialContenedor);
+			worldObjects.push(cil1);
+			cil2 = new Cilindro(altCil,radioCil  , manguera2.getPosFin() , [0,0,0], materialContenedor);
+			worldObjects.push(cil2);
+			cil3 = new Cilindro(altCil,radioCil  , manguera3.getPosFin()  , [0,0,0], materialContenedor);
+			worldObjects.push(cil3);
+			
+			domo = new Domo([0.2,0.2,0.2], [300,225,-10], [0,0,0],materialDomo);			//Escala final: 0.2
+			worldObjects.push(domo);
+			modulo1 = new Modulo([1,1,1.2], [300,0,0.1], [0,0,degToRad(90)],materialModulo);
+			worldObjects.push(modulo1);
+			modulo2 = new Modulo([1,1,1.2], [300,70,0.1], [0,0,degToRad(90)],materialModulo);
+			worldObjects.push(modulo2);
+			modulo3 = new Modulo([1,1,1.2], [300,140,0.1], [0,0,degToRad(90)],materialModulo);
+			worldObjects.push(modulo3);
+			
+			dron1 = new Dron([simulador.dron.tamX,simulador.dron.tamY,simulador.dron.tamZ],[simulador.dron.xInicial,simulador.dron.yInicial,simulador.dron.zInicial],[0,0,0]);
+			//worldObjects.push(dron1);
+			planeta = new Esfera(200,posPlaneta,[0,0,0],materialTierra);
+			worldObjects.push(planeta);
+			
+			tanque = new Tanque([1,1,1],[0,0,0],[0,0,0]);
+			worldObjects.push(tanque);
+			
+			
+				// Si este chasisTest se pone al principio, justo despues de la creación del suelo, por alguna razon tira error en los buffers. DESCUBRIR PORQUE PASA ESTO (puede ser un problema de enableVertexAttribArray)
+			chasisTestVikingo = new Chasis(1,[0,0,0],[0,0,0],materialChasis);
+			//worldObjects.push(chasisTestVikingo);
+			
+			
+			cielo = new Cubo([4000,4000,4000],[0,0,0],[0,0,0],materialCielo);
+			worldObjects.push(cielo);
+			
+			//test = new Manguera([3,3,3],[200,-30,-10], [0,0,0], materialManguera, 1);
+			//test2 = new Plano([1,1,1], [0,0,-10],[0,0,0], materialSuelo);
+			
+			
+        }
+		
+
+        function drawScene() {
+		
+			gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+			mat4.perspective(45, gl.viewportWidth / gl.viewportHeight, 0.1, 10000.0, pMatrix);
+
+			manejarCamaras();
+			manejarLuces();
+		
+		
+				if (magia)
+				{
+				mat4.rotate(mvMatrix, degToRad(t*100), [1.0,1.0,1.0]);
+				mat4.scale(mvMatrix, [Math.sin(t*8)+2,Math.cos(t)+2,Math.cos(t)]);
+				t += 0.01;
+				disparar = true;
+				tanque.chasisTot.torreta.rotArma += t;
+				
+				}
+			
+			
+			
+			//dibujarEjes();
+			
+			
+			
+			for (var obj=0;obj<worldObjects.length;obj++) {		
+				worldObjects[obj].draw();
+			}
+				
+			
+			
+			//test.draw();
+			//test2.draw();
+			
+		
+        }
+		
+		
+		var cont2 = 0; //DEBUG
+		
+        function animate() {
+		
+			var timeNow = new Date().getTime();
+			
+			if (lastTime != 0) {
+
+			tanque.chasisTot.animate(timeNow, lastTime);
+			//cuboMarce.rotacion = [cuboMarce.rotacion[0]+0.1*degToRad(timeNow-lastTime),cuboMarce.rotacion[1],cuboMarce.rotacion[2]];
+			
+			}
+			
+			lastTime = timeNow;
+			
+			
+			// ------------------------------ ANIMACION RELACIONADA CON EL MOTOR FISICO
+			
+          // Copy coordinates from Cannon.js to Three.js
+		  simulador.update();
+		  
+		  //console.log("simulador.dron.dronRb.position.z: "+simulador.dron.dronRb.position.z );
+		//console.log("simulador.dron.dronRb.velocity.z antes del set: "+simulador.dron.dronRb.velocity.z );
+
+		simulador.dron.dronRb.velocity.set(simulador.dron.dronRb.velocity.x,simulador.dron.dronRb.velocity.y,simulador.dron.dronRb.velocity.z + 0.3*velDron); 
+			
+		//console.log("simulador.dron.dronRb.velocity.z despues del set: "+simulador.dron.dronRb.velocity.z );
+
+
+		  tanque.chasisTot.posicion[0]= simulador.tanque.chassisRb.position.x;
+		  tanque.chasisTot.posicion[1]= simulador.tanque.chassisRb.position.y;
+		  tanque.chasisTot.posicion[2]= simulador.tanque.chassisRb.position.z;
+		  
+			cont2++;	//DEBUG
+		//if(cont2<lim|| mostrarLog){console.log("---FISICO---Posicion chasis en motor fisico: " + simulador.tanque.chassisRb.position);} //DEBUG
+		
+          var chassisRotation=simulador.tanque.getOrientacionChassis();
+		  
+		 // if(cont2<lim|| mostrarLog){console.log("---FISICO---Rotacion chasis en motor fisico: " + radToDeg(chassisRotation.x)+", "+radToDeg(chassisRotation.y)+", "+radToDeg(chassisRotation.z));} //DEBUG
+
+
+          tanque.chasisTot.rotacion[0]=(chassisRotation.x); // angulo en Radianes alrededor del eje X
+          tanque.chasisTot.rotacion[1]=(chassisRotation.y); // angulo en Radianes alrededor del eje Y         
+          tanque.chasisTot.rotacion[2]=(chassisRotation.z); // angulo en Radianes alrededor del eje Z
+
+		//if(cont2<lim|| mostrarLog){console.log("Rotacion chasis justo despues de la asignacion: " + radToDeg(chasisTot.rotacion[0])+", "+radToDeg(chasisTot.rotacion[1])+", "+radToDeg(chasisTot.rotacion[2]));} //DEBUG
+
+		  
+		//if(cont2<lim|| mostrarLog){console.log("---FISICO---Posicion rueda IZQ DEL en motor fisico: " + simulador.tanque.ruedaIzqDelRb.position);} //DEBUG
+		  // tren delantero	  
+		  tanque.trenDelantero.ruedaIzq.posicion[0]=simulador.tanque.ruedaIzqDelRb.position.x;
+		  tanque.trenDelantero.ruedaIzq.posicion[1]=simulador.tanque.ruedaIzqDelRb.position.y;
+		  tanque.trenDelantero.ruedaIzq.posicion[2]=simulador.tanque.ruedaIzqDelRb.position.z;
+		  
+		  
+		  tanque.trenDelantero.ruedaDer.posicion[0]=simulador.tanque.ruedaDerDelRb.position.x;
+		  tanque.trenDelantero.ruedaDer.posicion[1]=simulador.tanque.ruedaDerDelRb.position.y;
+		  tanque.trenDelantero.ruedaDer.posicion[2]=simulador.tanque.ruedaDerDelRb.position.z;
+		  
+		  var ruedaDerDelRotation=simulador.tanque.getOrientacionRuedaDerDel();          
+		  tanque.trenDelantero.ruedaDer.rotacion[0]=ruedaDerDelRotation.x;
+		  tanque.trenDelantero.ruedaDer.rotacion[1]=ruedaDerDelRotation.y;
+		  tanque.trenDelantero.ruedaDer.rotacion[2]=ruedaDerDelRotation.z;
+		 
+		  var ruedaIzqDelRotation=simulador.tanque.getOrientacionRuedaIzqDel();          
+		  tanque.trenDelantero.ruedaIzq.rotacion[0]=ruedaIzqDelRotation.x;
+		  tanque.trenDelantero.ruedaIzq.rotacion[1]=ruedaIzqDelRotation.y;
+		  tanque.trenDelantero.ruedaIzq.rotacion[2]=ruedaIzqDelRotation.z;  
+	
+		  
+		  // tren trasero
+		  
+		  tanque.trenTrasero.ruedaIzq.posicion[0]=simulador.tanque.ruedaIzqTraRb.position.x;
+		  tanque.trenTrasero.ruedaIzq.posicion[1]=simulador.tanque.ruedaIzqTraRb.position.y;
+		  tanque.trenTrasero.ruedaIzq.posicion[2]=simulador.tanque.ruedaIzqTraRb.position.z;
+		  
+		  
+		  tanque.trenTrasero.ruedaDer.posicion[0]=simulador.tanque.ruedaDerTraRb.position.x;
+		  tanque.trenTrasero.ruedaDer.posicion[1]=simulador.tanque.ruedaDerTraRb.position.y;
+		  tanque.trenTrasero.ruedaDer.posicion[2]=simulador.tanque.ruedaDerTraRb.position.z;
+		  
+		  
+		  var ruedaDerTraRotation=simulador.tanque.getOrientacionRuedaDerTra();          
+		  tanque.trenTrasero.ruedaDer.rotacion[0]=ruedaDerTraRotation.x;
+		  tanque.trenTrasero.ruedaDer.rotacion[1]=ruedaDerTraRotation.y;
+		  tanque.trenTrasero.ruedaDer.rotacion[2]=ruedaDerTraRotation.z;		   
+		  		  
+		  var ruedaIzqTraRotation=simulador.tanque.getOrientacionRuedaIzqTra();          
+		  tanque.trenTrasero.ruedaIzq.rotacion[0]=ruedaIzqTraRotation.x;
+		  tanque.trenTrasero.ruedaIzq.rotacion[1]=ruedaIzqTraRotation.y;
+		  tanque.trenTrasero.ruedaIzq.rotacion[2]=ruedaIzqTraRotation.z;
+		  
+		  // -------------------------------------
+
+		
+		
+		dron1.posicion[0]=simulador.dron.dronRb.position.x;
+		dron1.posicion[1]=simulador.dron.dronRb.position.y;
+		dron1.posicion[2]=simulador.dron.dronRb.position.z;
+		  
+		  
+		var dron1Rotation=simulador.dron.getOrientacionDron();          
+		dron1.rotacion[0]=dron1Rotation.x;
+		dron1.rotacion[1]=dron1Rotation.y;
+		dron1.rotacion[2]=dron1Rotation.z;	
+		
+		
+		planeta.posicion = [posPeaton[0] + posPlaneta[0],posPeaton[1]+ posPlaneta[1],posPeaton[2] + posPlaneta[2]];
+		cielo.posicion = posPeaton;
+		
+        }
+		
+
+        function tick() {
+            requestAnimFrame(tick);
+			
+		//	if(cont2<lim|| mostrarLog){console.log("Rotacion chasis despues de reqAnimFrame: " + radToDeg(chasisTot.rotacion[0])+", "+radToDeg(chasisTot.rotacion[1])+", "+radToDeg(chasisTot.rotacion[2]));} //DEBUG
+
+			
+			handleKeys();
+			
+		//	if(cont2<lim|| mostrarLog){console.log("Rotacion chasis despues de HandleKeys: " + radToDeg(chasisTot.rotacion[0])+", "+radToDeg(chasisTot.rotacion[1])+", "+radToDeg(chasisTot.rotacion[2]));} //DEBUG
+
+			
+            drawScene();
+			
+            animate();
+        }
+
+		function webGLStart() {
+            var canvas = document.getElementById("canvasTanque");
+			
+            initGL(canvas);
+            //initShaders();
+			initLights();
+            initBuffers();
+			initMaterials();
+			simulador = new Simulador();
+			initWorldObjects();
+
+
+            gl.clearColor(0.0, 0.0, 0.0, 1.0);
+            gl.enable(gl.DEPTH_TEST);
+			
+			document.onkeydown = handleKeyDown;
+			document.onkeyup = handleKeyUp;
+			
+			document.onmousedown = handleMouseDown;
+			document.onmouseup = handleMouseUp;
+			document.onmousemove = handleMouseMove;
+
+            tick();
+        }
+
+
+    </script>
+
+
+
+
+
+
+</head>
+
+<body onload="webGLStart();">
+<canvas id="canvasTanque"  width="700" height="500"></canvas>
+<br>
+Cursores para mover la camara - U/H/J/K para mover el tanque - A/D para girar la torreta - W/S para girar los cañones - Z/X para Zoomear/Deszoomear - Barra espaciadora para disparar y acelerar el cubo hacia arriba
+</br>
+</body>
+</html>
